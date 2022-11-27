@@ -86,7 +86,33 @@
                                     vterm-send-meta-backspace)
   "The keys used to abort completion.")
 
+(defcustom vterm-capf-frontend nil
+  "Frontend of vterm capf."
+  :group 'vterm-capf
+  :type '(choice
+          (const :tag "None" nil)
+          (const :tag "Company" company)
+          (const :tag "Corfu" corfu)))
+
 ;;; Company
+
+(declare-function corfu-quit "corfu")
+(declare-function corfu--post-command "corfu")
+(declare-function corfu--auto-tick "corfu")
+(defvar corfu-quit-no-match)
+(defvar corfu-auto-commands)
+
+(defvar company-point)
+(defvar company-prefix)
+(defvar company-backend)
+(defvar company-begin-commands)
+
+(declare-function company-abort "company")
+(declare-function company-post-command "company")
+(declare-function company-preview-hide "company")
+(declare-function company-strip-prefix "company")
+(declare-function company-call-backend "company")
+
 
 (defun vterm-capf--advice-company-idle-begin (origfn buf win tick pos)
   "Advice around `company-idle-begin'."
@@ -102,8 +128,7 @@
     (if (eq (company-call-backend 'ignore-case) 'keep-prefix)
         (vterm-insert (company-strip-prefix candidate))
       (unless (equal company-prefix candidate)
-        (let ((bounds (bounds-of-thing-at-point 'symbol))
-              (del-start (- (point) (length company-prefix) 1)))
+        (let ((bounds (bounds-of-thing-at-point 'symbol)))
           (vterm-delete-region (car bounds) (point))
           (vterm-insert candidate))))))
 
@@ -119,7 +144,7 @@
       (progn
         (company-preview-hide)
         (apply 'run-with-timer 0.1 nil
-               (lambda (origfn pos completion)
+               (lambda (origfn _pos completion)
                  (let ((buffer-read-only t)
                        (inhibit-message t)
                        (company-point (point))
@@ -172,31 +197,30 @@
           (apply args)))
     (apply args)))
 
-(defun vterm-capf--invoke-company (this-command)
-  (let ((buffer-read-only nil)
-        (this-command this-command)
-        (company-prefix (thing-at-point 'symbol))
-        (company-backend 'company-capf) ;; Avoid void-function error in `company-call-backend-raw'.
-        (company-begin-commands
-         (append (if (eq this-command 'vterm--self-insert)
-                     (list this-command)
-                   nil)
-                 company-begin-commands)))
+(defun vterm-capf--invoke-company (command)
+  (let* ((buffer-read-only nil)
+         (this-command command)
+         (company-prefix (thing-at-point 'symbol))
+         (company-backend 'company-capf) ;; Avoid void-function error in `company-call-backend-raw'.
+         (company-begin-commands
+          (append (if (eq this-command 'vterm--self-insert)
+                      (list this-command)
+                    nil)
+                  company-begin-commands)))
     (company-post-command)))
 
-(defun vterm-capf--invoke-corfu (this-command)
-  ;; (completion-at-point)
-  (let ((this-command this-command)
-        (corfu-auto-commands (list this-command))
-        (completion-in-region--data
-         (when completion-in-region--data
-           (pcase-let ((`(,_beg ,end ,table ,pred) completion-in-region--data))
-             (save-excursion
-               (goto-char (1- end))
-               (list (copy-marker (car (bounds-of-thing-at-point 'symbol)))
-                     (copy-marker (point) t)
-                     table
-                     pred))))))
+(defun vterm-capf--invoke-corfu (command)
+  (let* ((this-command command)
+         (corfu-auto-commands (list this-command))
+         (completion-in-region--data
+          (when completion-in-region--data
+            (pcase-let ((`(,_beg ,end ,table ,pred) completion-in-region--data))
+              (save-excursion
+                (goto-char (1- end))
+                (list (copy-marker (car (bounds-of-thing-at-point 'symbol)))
+                      (copy-marker (point) t)
+                      table
+                      pred))))))
     (corfu--post-command)))
 
 (defun vterm-capf--advice-before-vterm-send-key (&rest _)
@@ -224,19 +248,13 @@
 
 
 
+(defvar vterm-capf-mode)
+
 (defvar vterm-capf-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "C-M-i") #'completion-at-point)
     map)
   "Keymap for `vterm-capf-mode'.")
-
-(defcustom vterm-capf-frontend nil
-  "Frontend of vterm capf."
-  :group 'vterm-capf
-  :type '(choice
-          (const :tag "None" nil)
-          (const :tag "Company" company)
-          (const :tag "Corfu" corfu)))
 
 (defun vterm-capf-frontend-setup (frontend)
   "Setup frontend."
