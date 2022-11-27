@@ -42,11 +42,6 @@
 (defvar vterm-capf-shell-completion-command "compgen -A function -ac"
   "Command to generate shell completions.")
 
-(defun vterm-capf-message (&rest args)
-  ;; (let ((inhibit-message t))
-  ;;   (apply #'message args))
-  )
-
 (defun vterm-capf--fetch-shell-completions (&optional force)
   "Return shell completions."
   (when (or force (not vterm-capf--shell-completions-cache))
@@ -125,7 +120,6 @@
         (company-preview-hide)
         (apply 'run-with-timer 0.1 nil
                (lambda (origfn pos completion)
-                 (vterm-capf-message "==> [vterm-capf--advice-company-preview-show-at-point] 1")
                  (let ((buffer-read-only t)
                        (inhibit-message t)
                        (company-point (point))
@@ -133,7 +127,6 @@
                    (unless (string= completion company-prefix)
                      (funcall origfn (point) completion))))
                args))
-    (vterm-capf-message "==> [vterm-capf--advice-company-preview-show-at-point] 2")
     (apply args)))
 
 (defun vterm-capf--advice-company--continue (&rest args)
@@ -149,7 +142,6 @@
 
 (defun vterm-capf--advice-corfu--auto-post-command (&rest args)
   "Advice around `corfu--auto-post-command'."
-  (vterm-capf-message "==> [vterm-capf--advice-corfu--auto-post-command] this-command: %s input: %s" this-command corfu--input)
   (if (derived-mode-p 'vterm-mode)
     (let (buffer-read-only)
       (apply args))
@@ -175,7 +167,6 @@
       (let (buffer-read-only)
         (cl-letf (((symbol-function 'completion--replace)
                    (lambda (beg end newstr)
-                     (vterm-capf-message "==> [completion--replace@] beg: %s end: %s newstr: %s" beg end newstr)
                      (let (buffer-read-only)
                        (vterm-insert (substring newstr (- end beg)))))))
           (apply args)))
@@ -191,7 +182,6 @@
                      (list this-command)
                    nil)
                  company-begin-commands)))
-    (vterm-capf-message "==> [vterm-send-key@after][1] this-command: %s prefix: %s" this-command company-prefix)
     (company-post-command)))
 
 (defun vterm-capf--invoke-corfu (this-command)
@@ -207,8 +197,6 @@
                      (copy-marker (point) t)
                      table
                      pred))))))
-    (vterm-capf-message "==> [vterm-capf--invoke-corfu] this-command: %s" this-command)
-    (vterm-capf-message "==> [vterm-capf--invoke-corfu] beg: %s end: %s" (nth 0 completion-in-region--data) (nth 1 completion-in-region--data))
     (corfu--post-command)))
 
 (defun vterm-capf--advice-before-vterm-send-key (&rest _)
@@ -216,8 +204,6 @@
 
 (defun vterm-capf--advice-after-vterm-send-key (&rest _)
   "Advice after `vterm-send-key'."
-  (vterm-capf-message "\n==> [vterm-send-key@after] this-command: %s input: %s"
-                      this-command (or (bound-and-true-p company-prefix) (bound-and-true-p corfu--input)))
   (cond
    ((memq this-command vterm-capf-abort-commands)
     (cl-case vterm-capf-frontend
