@@ -5,6 +5,8 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2022/11/19
 ;; Version: 0.1.0
+;; Last-Updated: 2022-11-28 11:26:27 +0800
+;;           by: Gong Qijian
 ;; Package-Requires: ((emacs "25.1") (vterm "0.0.1"))
 ;; URL: https://github.com/twlz0ne/vterm-capf
 ;; Keywords: completion, shell
@@ -146,7 +148,6 @@
         (apply 'run-with-timer 0.1 nil
                (lambda (origfn _pos completion)
                  (let ((buffer-read-only t)
-                       (inhibit-message t)
                        (company-point (point))
                        (company-prefix (thing-at-point 'symbol)))
                    (unless (string= completion company-prefix)
@@ -186,15 +187,42 @@
       (funcall origfn (corfu--auto-tick))
     (funcall origfn tick)))
 
+(defun vterm-capf--renew-corfu-completion-data ()
+  "Renew `completion-in-region--data' that is changed by corfu.
+
+When corfu is enabled, the data becomes something like this:
+
+  (64 71 ,table ,pred) ;; => \"$ part\n\"
+
+But the expection is something like this:
+
+  (66 70 ,table ,pred) ;; => \"part\""
+  (when completion-in-region--data
+    (pcase-let ((`(,_beg ,end ,table ,pred) completion-in-region--data))
+      (save-excursion
+        (goto-char (1- end))
+        (let ((bounds (bounds-of-thing-at-point 'symbol)))
+          (list (copy-marker (car bounds))
+                (copy-marker (cdr bounds) t)
+                table
+                pred))))))
+
 (defun vterm-capf--advice-corfu-complete (&rest args)
   "Advice around `corfu-complete'."
   (if (derived-mode-p 'vterm-mode)
-      (let (buffer-read-only)
+      (let ((buffer-read-only nil)
+            (point-backup nil)
+            (completion-in-region--data (vterm-capf--renew-corfu-completion-data)))
         (cl-letf (((symbol-function 'completion--replace)
                    (lambda (beg end newstr)
                      (let (buffer-read-only)
-                       (vterm-insert (substring newstr (- end beg)))))))
-          (apply args)))
+                       (vterm-insert (substring newstr (- end beg)) )
+                       ;; There is a `goto-char' that will change the point after
+                       ;; `completion--replace' in `corfu-complete'.
+                       (setq point-backup (point))))))
+          (prog1 (apply args)
+            (when point-backup
+              (goto-char point-backup)))))
     (apply args)))
 
 (defun vterm-capf--invoke-company (command)
@@ -212,15 +240,7 @@
 (defun vterm-capf--invoke-corfu (command)
   (let* ((this-command command)
          (corfu-auto-commands (list this-command))
-         (completion-in-region--data
-          (when completion-in-region--data
-            (pcase-let ((`(,_beg ,end ,table ,pred) completion-in-region--data))
-              (save-excursion
-                (goto-char (1- end))
-                (list (copy-marker (car (bounds-of-thing-at-point 'symbol)))
-                      (copy-marker (point) t)
-                      table
-                      pred))))))
+         (completion-in-region--data (vterm-capf--renew-corfu-completion-data)))
     (corfu--post-command)))
 
 (defun vterm-capf--advice-before-vterm-send-key (&rest _)
