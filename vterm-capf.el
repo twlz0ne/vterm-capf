@@ -5,7 +5,7 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2022/11/19
 ;; Version: 0.1.0
-;; Last-Updated: 2022-11-28 11:26:27 +0800
+;; Last-Updated: 2022-12-01 12:07:33 +0800
 ;;           by: Gong Qijian
 ;; Package-Requires: ((emacs "25.1") (vterm "0.0.1"))
 ;; URL: https://github.com/twlz0ne/vterm-capf
@@ -35,14 +35,21 @@
 (require 'cl-lib)
 (require 'vterm)
 
+(defvar vterm-capf-shell-completion-command "compgen -A function -ac"
+  "Command to generate shell completions.")
+
 (defvar vterm-capf--shell-completions-cache nil
   "Cache of shell completions.")
 
 (defvar vterm-capf--last-point nil
   "Point before send key.")
 
-(defvar vterm-capf-shell-completion-command "compgen -A function -ac"
-  "Command to generate shell completions.")
+(defun vterm-capf--advice-inhibit-read-only (&rest args)
+  "Advice to temporary inhibit buffer-read-only for `vterm-mode'."
+  (if (derived-mode-p 'vterm-mode)
+      (let (buffer-read-only)
+        (apply args))
+    (apply args)))
 
 (defun vterm-capf--fetch-shell-completions (&optional force)
   "Return shell completions."
@@ -70,13 +77,6 @@
     (when bounds
       (vterm-capf-in-region (car bounds) (cdr bounds)))))
 
-(defun vterm-capf--advice-inhibit-read-only (&rest args)
-  "Advice to temporary inhibit buffer-read-only for `vterm-mode'."
-  (if (derived-mode-p 'vterm-mode)
-      (let (buffer-read-only)
-        (apply args))
-    (apply args)))
-
 
 
 (defvar vterm-capf--post-command-timer nil "Post command timer.")
@@ -98,12 +98,6 @@
 
 ;;; Company
 
-(declare-function corfu-quit "corfu")
-(declare-function corfu--post-command "corfu")
-(declare-function corfu--auto-tick "corfu")
-(defvar corfu-quit-no-match)
-(defvar corfu-auto-commands)
-
 (defvar company-point)
 (defvar company-prefix)
 (defvar company-backend)
@@ -114,7 +108,6 @@
 (declare-function company-preview-hide "company")
 (declare-function company-strip-prefix "company")
 (declare-function company-call-backend "company")
-
 
 (defun vterm-capf--advice-company-idle-begin (origfn buf win tick pos)
   "Advice around `company-idle-begin'."
@@ -164,7 +157,25 @@
                          company-point)))
     (apply args)))
 
+(defun vterm-capf--invoke-company (command)
+  (let* ((buffer-read-only nil)
+         (this-command command)
+         (company-prefix (thing-at-point 'symbol))
+         (company-backend 'company-capf) ;; Avoid void-function error in `company-call-backend-raw'.
+         (company-begin-commands
+          (append (if (eq this-command 'vterm--self-insert)
+                      (list this-command)
+                    nil)
+                  company-begin-commands)))
+    (company-post-command)))
+
 ;;; Corfu
+
+(defvar corfu-quit-no-match)
+(defvar corfu-auto-commands)
+(declare-function corfu-quit "corfu")
+(declare-function corfu--post-command "corfu")
+(declare-function corfu--auto-tick "corfu")
 
 (defun vterm-capf--advice-corfu--auto-post-command (&rest args)
   "Advice around `corfu--auto-post-command'."
@@ -225,24 +236,6 @@ But the expection is something like this:
               (goto-char point-backup)))))
     (apply args)))
 
-(defun vterm-capf--invoke-company (command)
-  (let* ((buffer-read-only nil)
-         (this-command command)
-         (company-prefix (thing-at-point 'symbol))
-         (company-backend 'company-capf) ;; Avoid void-function error in `company-call-backend-raw'.
-         (company-begin-commands
-          (append (if (eq this-command 'vterm--self-insert)
-                      (list this-command)
-                    nil)
-                  company-begin-commands)))
-    (company-post-command)))
-
-(defun vterm-capf--invoke-corfu (command)
-  (let* ((this-command command)
-         (corfu-auto-commands (list this-command))
-         (completion-in-region--data (vterm-capf--renew-corfu-completion-data)))
-    (corfu--post-command)))
-
 (defun vterm-capf--advice-before-vterm-send-key (&rest _)
   (setq vterm-capf--last-point (point)))
 
@@ -265,6 +258,12 @@ But the expection is something like this:
           (setq vterm-capf--post-command-timer nil))
         (setq vterm-capf--post-command-timer
               (run-with-timer 0.1 nil fn this-command)))))))
+
+(defun vterm-capf--invoke-corfu (command)
+  (let* ((this-command command)
+         (corfu-auto-commands (list this-command))
+         (completion-in-region--data (vterm-capf--renew-corfu-completion-data)))
+    (corfu--post-command)))
 
 
 
