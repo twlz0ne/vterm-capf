@@ -4,8 +4,8 @@
 
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2022/11/19
-;; Version: 0.1.0
-;; Last-Updated: 2022-12-03 12:39:38 +0800
+;; Version: 0.1.1
+;; Last-Updated: 2022-12-03 12:40:59 +0800
 ;;           by: Gong Qijian
 ;; Package-Requires: ((emacs "25.1") (vterm "0.0.1"))
 ;; URL: https://github.com/twlz0ne/vterm-capf
