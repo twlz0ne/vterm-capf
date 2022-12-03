@@ -5,7 +5,7 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2022/11/19
 ;; Version: 0.1.0
-;; Last-Updated: 2022-12-01 12:07:33 +0800
+;; Last-Updated: 2022-12-03 12:39:38 +0800
 ;;           by: Gong Qijian
 ;; Package-Requires: ((emacs "25.1") (vterm "0.0.1"))
 ;; URL: https://github.com/twlz0ne/vterm-capf
@@ -51,31 +51,63 @@
         (apply args))
     (apply args)))
 
-(defun vterm-capf--fetch-shell-completions (&optional force)
-  "Return shell completions."
-  (when (or force (not vterm-capf--shell-completions-cache))
+(defun vterm-capf--shell-completions (&optional force-update)
+  "Return completion table for shell commands."
+  (when (or force-update (not vterm-capf--shell-completions-cache))
     (setq vterm-capf--shell-completions-cache
           (split-string (shell-command-to-string
                          vterm-capf-shell-completion-command))))
   vterm-capf--shell-completions-cache)
 
-(defun vterm-capf-in-region (beg end)
-  "Complete the text between BEG and END."
+(defvar vterm-capf-filename-begin-chars '(?/)
+  "A list of filename begin chars.")
+
+(defun vterm-capf--file-completions (str pred action)
+  "Return completion table for file names."
+  (funcall
+   (lambda (str pred action)
+     (let ((table #'read-file-name-internal)
+           (non-essential t))
+       (funcall table str pred action)))
+   str pred action))
+
+(defun vterm-capf-complete-file-in-region (beg end)
+  "Complete filename between BEG and END."
+  (list beg end #'vterm-capf--file-completions))
+
+(defun vterm-capf-complete-symbol-in-region (beg end)
+  "Complete symbol between BEG and END."
   (let ((input (downcase (buffer-substring-no-properties beg end)))
         cands)
     (mapc
      (lambda (cand)
        (when (string-prefix-p input (downcase cand))
          (push cand cands)))
-     (vterm-capf--fetch-shell-completions))
+     (vterm-capf--shell-completions))
     (list beg end (reverse cands))))
+
+(defun vterm-capf--bounds-and-collection ()
+  "Return (BOUNDS . COLLECTION) at point."
+  (let ((symbol-bounds (bounds-of-thing-at-point 'symbol))
+        (filename-bounds (bounds-of-thing-at-point 'filename)))
+    (cond
+     ((and filename-bounds
+           (or (not symbol-bounds)
+               (< (car filename-bounds) (car symbol-bounds))
+               (member (char-after (car symbol-bounds))
+                       vterm-capf-filename-begin-chars)))
+      (cons filename-bounds #'vterm-capf-complete-file-in-region))
+     (symbol-bounds
+      (cons symbol-bounds #'vterm-capf-complete-symbol-in-region)))))
 
 (defun vterm-capf-at-point ()
   "Function for `completion-at-point-functions' in `vterm-mode'."
   (interactive)
-  (let ((bounds (bounds-of-thing-at-point 'symbol)))
-    (when bounds
-      (vterm-capf-in-region (car bounds) (cdr bounds)))))
+  (let ((bounds-and-collection (vterm-capf--bounds-and-collection)))
+    (when bounds-and-collection
+      (funcall (cdr bounds-and-collection)
+               (car (car bounds-and-collection))
+               (cdr (car bounds-and-collection))))))
 
 
 
@@ -123,7 +155,7 @@
     (if (eq (company-call-backend 'ignore-case) 'keep-prefix)
         (vterm-insert (company-strip-prefix candidate))
       (unless (equal company-prefix candidate)
-        (let ((bounds (bounds-of-thing-at-point 'symbol)))
+        (let ((bounds (car (vterm-capf--bounds-and-collection))))
           (vterm-delete-region (car bounds) (point))
           (vterm-insert candidate))))))
 
@@ -186,10 +218,7 @@
 
 (defun vterm-capf--advice-corfu--exhibit (&rest args)
   "Advice around `corfu--exhibit'."
-  (let ((corfu-quit-no-match
-         (if (eq this-command 'corfu-complete)
-             t ;; Inhibit `No match'.
-           corfu-quit-no-match)))
+  (let ((corfu-quit-no-match t)) ;; FIXME: Inhibit `No match'.
     (apply args)))
 
 (defun vterm-capf--advice-corfu--auto-complete (origfn tick)
@@ -212,7 +241,7 @@ But the expection is something like this:
     (pcase-let ((`(,_beg ,end ,table ,pred) completion-in-region--data))
       (save-excursion
         (goto-char (1- end))
-        (let ((bounds (bounds-of-thing-at-point 'symbol)))
+        (let ((bounds (car (vterm-capf--bounds-and-collection))))
           (list (copy-marker (car bounds))
                 (copy-marker (cdr bounds) t)
                 table
